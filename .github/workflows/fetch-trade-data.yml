@@ -1,0 +1,27 @@
+name: Fetch trade data
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/fetch-trade-data.yml'
+      - 'scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test artifact
+        run: |
+          mkdir -p output
+          printf 'workflow test\n' > output/test.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trade-data
+          path: output/
+          retention-days: 1
