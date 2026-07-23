@@ -26,13 +26,19 @@ jobs:
           pip install pandas numpy requests openpyxl pyarrow
 
       - name: Ejecutar freeze, catálogo y piloto
-        run: python pipeline_modelo_ipe_idr.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python pipeline_modelo_ipe_idr.py 2>&1 | tee run.log
 
-      - name: Publicar entregables
+      - name: Publicar entregables y bitácora
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: modelo-ipe-idr-fase2
-          path: output/
-          if-no-files-found: error
+          path: |
+            output/
+            run.log
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 2
