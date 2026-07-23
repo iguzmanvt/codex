@@ -28,6 +28,15 @@ jobs:
       - name: Ejecutar freeze, catálogo y piloto
         run: python pipeline_modelo_ipe_idr.py
 
+      - name: Publicar diagnóstico si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelo-ipe-idr-fase2-diagnostico
+          path: output/diagnostic_traceback.txt
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Publicar entregables derivados
         uses: actions/upload-artifact@v4
         with:
