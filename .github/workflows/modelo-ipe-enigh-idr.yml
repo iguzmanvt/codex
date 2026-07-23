@@ -1,0 +1,83 @@
+name: Modelo IPE - ENIGH IDR Fase 2
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests pyarrow
+
+      - name: Ejecutar freeze, catálogo y piloto
+        run: python pipeline_modelo_ipe_idr.py
+
+      - name: Publicar entregables derivados
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelo-ipe-idr-fase2-derivados
+          path: output/derived/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 3
+
+      - name: Publicar freeze ENIGH 2016
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigh-freeze-2016
+          path: output/raw/2016/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+      - name: Publicar freeze ENIGH 2018
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigh-freeze-2018
+          path: output/raw/2018/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+      - name: Publicar freeze ENIGH 2020
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigh-freeze-2020
+          path: output/raw/2020/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+      - name: Publicar freeze ENIGH 2022
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigh-freeze-2022
+          path: output/raw/2022/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+      - name: Publicar freeze ENIGH 2024
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigh-freeze-2024
+          path: output/raw/2024/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
