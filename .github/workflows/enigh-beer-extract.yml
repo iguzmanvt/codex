@@ -1,9 +1,10 @@
 name: enigh-beer-extract
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
     paths:
-      - '.github/workflows/enigh-beer-extract.yml'
+      - '.github/enigh-beer-trigger.txt'
   workflow_dispatch:
 
 permissions:
@@ -98,7 +99,7 @@ jobs:
           done < work/sources.tsv
 
           python - <<'PY'
-          import csv, glob, gzip, hashlib, json
+          import csv, json
           from pathlib import Path
 
           rows=[]
