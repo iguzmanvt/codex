@@ -13,123 +13,41 @@ permissions:
 jobs:
   extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download, verify and filter official ENIGH files
+      - name: Diagnose ENIGH 2016 download
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p work output
-
-          cat > work/sources.tsv <<'EOF'
-          2016	https://www.inegi.org.mx/contenidos/programas/enigh/nc/2016/datosabiertos/conjunto_de_datos_enigh2016_nueva_serie_csv.zip	95e30780dfff83305fd1293945a0a5ed04c4e4daed4b0d45b66343db09e8eca1	A224
-          2018	https://www.inegi.org.mx/contenidos/programas/enigh/nc/2018/datosabiertos/conjunto_de_datos_enigh_2018_ns_csv.zip	5026cd951c109ac01c466aa22066beb7c6cbdcf7ecfc213967bd961d1243d636	A224
-          2020	https://www.inegi.org.mx/contenidos/programas/enigh/nc/2020/datosabiertos/conjunto_de_datos_enigh_ns_2020_csv.zip	47417cac13da7dce3a710d86c5767564101086a51666ec674acf27740e0701d4	A224
-          2022	https://www.inegi.org.mx/contenidos/programas/enigh/nc/2022/datosabiertos/conjunto_de_datos_enigh_ns_2022_csv.zip	3b2b0bc9c95323b470608113d2902ff3a832764367135f136270b4ce092c9e06	A224
-          2024	https://www.inegi.org.mx/contenidos/programas/enigh/nc/2024/datosabiertos/conjunto_de_datos_enigh2024_ns_csv.zip	7cbf18fee02c58849356e5495fb851ae4d0330743e34d26e35973f9ad5a1155d	A251,A252,A253,A254
-          EOF
-
-          while IFS=$'\t' read -r year url expected codes; do
-            zipfile="work/enigh_${year}.zip"
-            echo "Downloading ENIGH ${year}"
-            curl -fL --retry 6 --retry-all-errors --connect-timeout 30 \
-              -A 'Mozilla/5.0 (compatible; Modelo-IPE-public-data/1.0)' \
-              "$url" -o "$zipfile"
-            actual="$(sha256sum "$zipfile" | awk '{print $1}')"
-            if [[ "$actual" != "$expected" ]]; then
-              echo "SHA-256 mismatch for ${year}: ${actual} != ${expected}" >&2
-              exit 1
+          mkdir -p output
+          url='https://www.inegi.org.mx/contenidos/programas/enigh/nc/2016/datosabiertos/conjunto_de_datos_enigh2016_nueva_serie_csv.zip'
+          expected='95e30780dfff83305fd1293945a0a5ed04c4e4daed4b0d45b66343db09e8eca1'
+          set +e
+          curl -L --retry 2 --connect-timeout 30 -A 'Mozilla/5.0' \
+            -D output/headers.txt -w '\nHTTP_CODE=%{http_code}\nSIZE_DOWNLOAD=%{size_download}\nURL_EFFECTIVE=%{url_effective}\n' \
+            "$url" -o output/enigh2016.zip > output/curl_summary.txt 2> output/curl_stderr.txt
+          rc=$?
+          echo "$rc" > output/curl_exit_code.txt
+          if [[ -f output/enigh2016.zip ]]; then
+            stat -c '%s' output/enigh2016.zip > output/size_bytes.txt
+            sha256sum output/enigh2016.zip > output/sha256.txt
+            unzip -t output/enigh2016.zip > output/unzip_test.txt 2>&1
+            unzip -Z1 output/enigh2016.zip | grep -i 'gastoshogar' > output/gastoshogar_members.txt 2>&1
+            member="$(unzip -Z1 output/enigh2016.zip | grep -iE '(^|/)gastoshogar\.csv$' | head -n 1)"
+            if [[ -n "$member" ]]; then
+              unzip -p output/enigh2016.zip "$member" | head -n 1 > output/gastoshogar_header.txt
             fi
-            member="$(unzip -Z1 "$zipfile" | grep -iE '(^|/)gastoshogar\.csv$' | head -n 1)"
-            if [[ -z "$member" ]]; then
-              echo "gastoshogar.csv not found for ${year}" >&2
-              unzip -Z1 "$zipfile" | head -n 100 >&2
-              exit 1
-            fi
-            unzip -p "$zipfile" "$member" > "work/gastoshogar_${year}.csv"
-            python - "$year" "$codes" "$expected" "$url" "$member" <<'PY'
-          import csv, gzip, hashlib, json, sys
-          from collections import Counter
-          from pathlib import Path
+          fi
+          echo "expected_sha256=$expected" > output/expected.txt
+          exit 0
 
-          year, codes_text, expected_sha, url, member = sys.argv[1:]
-          codes = set(codes_text.split(','))
-          src = Path(f'work/gastoshogar_{year}.csv')
-          out = Path(f'output/beer_gastoshogar_{year}.csv.gz')
-          counts = Counter()
-          rows = 0
-          with src.open('r', encoding='utf-8-sig', newline='') as fi:
-              reader = csv.DictReader(fi)
-              headers = reader.fieldnames or []
-              required = {'folioviv','foliohog','clave','gasto_tri','gas_nm_tri'}
-              missing = required - set(headers)
-              if missing:
-                  raise SystemExit(f'{year}: missing required columns {sorted(missing)}')
-              with gzip.open(out, 'wt', encoding='utf-8-sig', newline='') as fo:
-                  writer = csv.DictWriter(fo, fieldnames=headers)
-                  writer.writeheader()
-                  for row in reader:
-                      code = (row.get('clave') or '').strip()
-                      if code in codes:
-                          writer.writerow(row)
-                          rows += 1
-                          counts[code] += 1
-          digest = hashlib.sha256(out.read_bytes()).hexdigest()
-          metadata = {
-              'year': int(year),
-              'source_url': url,
-              'source_zip_sha256_verified': expected_sha,
-              'source_member': member,
-              'source_columns': headers,
-              'beer_codes': sorted(codes),
-              'beer_rows': rows,
-              'rows_by_code': dict(sorted(counts.items())),
-              'output_file': out.name,
-              'output_sha256': digest,
-              'scope': 'filtered official public-use microdata; not a complete ENIGH copy'
-          }
-          Path(f'output/metadata_{year}.json').write_text(
-              json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
-          print(json.dumps(metadata, ensure_ascii=False))
-          PY
-            rm -f "$zipfile" "work/gastoshogar_${year}.csv"
-          done < work/sources.tsv
-
-          python - <<'PY'
-          import csv, json
-          from pathlib import Path
-
-          rows=[]
-          for p in sorted(Path('output').glob('metadata_*.json')):
-              m=json.loads(p.read_text(encoding='utf-8'))
-              rows.append({
-                  'year':m['year'],
-                  'source_url':m['source_url'],
-                  'source_zip_sha256_verified':m['source_zip_sha256_verified'],
-                  'source_member':m['source_member'],
-                  'beer_codes':','.join(m['beer_codes']),
-                  'beer_rows':m['beer_rows'],
-                  'rows_by_code':json.dumps(m['rows_by_code'], ensure_ascii=False, sort_keys=True),
-                  'output_file':m['output_file'],
-                  'output_sha256':m['output_sha256'],
-              })
-          with Path('output/manifest.csv').open('w', encoding='utf-8-sig', newline='') as f:
-              w=csv.DictWriter(f, fieldnames=list(rows[0]))
-              w.writeheader(); w.writerows(rows)
-          Path('output/README.md').write_text(
-              '# ENIGH beer-only microdata extract\n\n'
-              'Filtered from official INEGI public-use ENIGH ZIPs after SHA-256 verification. '
-              'Contains only the beer expenditure codes required by Modelo IPE.\n',
-              encoding='utf-8')
-          PY
-
-      - name: Upload filtered artifact
+      - name: Upload diagnostic artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: enigh-beer-filtered-2016-2024
+          name: enigh-download-diagnostic
           path: output/
           if-no-files-found: error
           retention-days: 3
